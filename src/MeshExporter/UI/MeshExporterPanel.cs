@@ -126,18 +126,18 @@ internal sealed class MeshExporterPanel : UserControl
 
     public string UpkPath
     {
-        get => _upkPathTextBox.Text;
-        set => _upkPathTextBox.Text = value;
+        get => GetControlText(_upkPathTextBox);
+        set => SetControlText(_upkPathTextBox, value);
     }
 
     public string FbxPath
     {
-        get => _fbxPathTextBox.Text;
-        set => _fbxPathTextBox.Text = value;
+        get => GetControlText(_fbxPathTextBox);
+        set => SetControlText(_fbxPathTextBox, value);
     }
 
-    public string SelectedMeshName => _skeletalMeshComboBox.SelectedItem as string;
-    public int SelectedLodIndex => _lodComboBox.SelectedIndex < 0 ? 0 : _lodComboBox.SelectedIndex;
+    public string SelectedMeshName => GetSelectedItemText(_skeletalMeshComboBox);
+    public int SelectedLodIndex => GetSelectedIndex(_lodComboBox);
 
     public void SetMeshOptions(IEnumerable<string> meshNames)
     {
@@ -160,6 +160,12 @@ internal sealed class MeshExporterPanel : UserControl
 
     public void SetBusy(bool isBusy)
     {
+        if (InvokeRequired)
+        {
+            Invoke(new Action<bool>(SetBusy), isBusy);
+            return;
+        }
+
         _browseUpkButton.Enabled = !isBusy;
         _browseFbxButton.Enabled = !isBusy;
         _refreshMeshesButton.Enabled = !isBusy;
@@ -170,6 +176,12 @@ internal sealed class MeshExporterPanel : UserControl
 
     public void ReportProgress(int value, int maximum, string message)
     {
+        if (InvokeRequired)
+        {
+            Invoke(new Action<int, int, string>(ReportProgress), value, maximum, message);
+            return;
+        }
+
         _progressBar.Maximum = Math.Max(1, maximum);
         _progressBar.Value = Math.Clamp(value, 0, _progressBar.Maximum);
         _progressPercentLabel.Text = $"{(int)Math.Round((_progressBar.Value / (double)_progressBar.Maximum) * 100)}%";
@@ -178,6 +190,12 @@ internal sealed class MeshExporterPanel : UserControl
 
     public void AppendLog(string message)
     {
+        if (InvokeRequired)
+        {
+            Invoke(new Action<string>(AppendLog), message);
+            return;
+        }
+
         if (string.IsNullOrWhiteSpace(message))
             return;
 
@@ -189,7 +207,48 @@ internal sealed class MeshExporterPanel : UserControl
 
     public void ClearLog()
     {
+        if (InvokeRequired)
+        {
+            Invoke(new Action(ClearLog));
+            return;
+        }
+
         _logTextBox.Clear();
+    }
+
+    private static string GetControlText(TextBox textBox)
+    {
+        if (textBox.InvokeRequired)
+            return (string)textBox.Invoke(new Func<string>(() => textBox.Text));
+
+        return textBox.Text;
+    }
+
+    private static void SetControlText(TextBox textBox, string value)
+    {
+        if (textBox.InvokeRequired)
+        {
+            textBox.Invoke(new Action<TextBox, string>(SetControlText), textBox, value);
+            return;
+        }
+
+        textBox.Text = value;
+    }
+
+    private static string GetSelectedItemText(ComboBox comboBox)
+    {
+        if (comboBox.InvokeRequired)
+            return (string)comboBox.Invoke(new Func<string>(() => comboBox.SelectedItem as string));
+
+        return comboBox.SelectedItem as string;
+    }
+
+    private static int GetSelectedIndex(ComboBox comboBox)
+    {
+        if (comboBox.InvokeRequired)
+            return (int)comboBox.Invoke(new Func<int>(() => comboBox.SelectedIndex < 0 ? 0 : comboBox.SelectedIndex));
+
+        return comboBox.SelectedIndex < 0 ? 0 : comboBox.SelectedIndex;
     }
 
     protected override void OnLayout(LayoutEventArgs levent)
