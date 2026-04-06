@@ -84,8 +84,67 @@ internal static class SkeletalFbxExporter
             armatureNode.Children.Add(meshNode);
         }
 
-        if (!context.ExportFile(scene, fileName, "fbx"))
-            throw new InvalidOperationException("Assimp failed to export the SkeletalMesh as FBX.");
+        string exportFormatId = ResolveFbxExportFormatId(context);
+        string tempExportPath = BuildTempExportPath(directory);
+
+        try
+        {
+            if (!context.ExportFile(scene, tempExportPath, exportFormatId))
+            {
+                throw new InvalidOperationException(
+                    $"Assimp failed to export the SkeletalMesh as FBX. " +
+                    $"Format={exportFormatId}, Bones={exportData.Bones.Count}, Sections={exportData.Sections.Count}, Materials={scene.Materials.Count}, Meshes={scene.Meshes.Count}.");
+            }
+
+            File.Copy(tempExportPath, fileName, overwrite: true);
+        }
+        catch (AssimpException ex)
+        {
+            throw new InvalidOperationException(
+                $"Assimp failed to export the SkeletalMesh as FBX. " +
+                $"Format={exportFormatId}, Bones={exportData.Bones.Count}, Sections={exportData.Sections.Count}, Materials={scene.Materials.Count}, Meshes={scene.Meshes.Count}. " +
+                $"RequestedPath={fileName}",
+                ex);
+        }
+        finally
+        {
+            TryDeleteFile(tempExportPath);
+        }
+    }
+
+    private static string ResolveFbxExportFormatId(AssimpContext context)
+    {
+        ExportFormatDescription description = context.GetSupportedExportFormats()
+            .FirstOrDefault(static item =>
+                item.FileExtension.Equals("fbx", StringComparison.OrdinalIgnoreCase) ||
+                item.FormatId.Equals("fbx", StringComparison.OrdinalIgnoreCase));
+
+        return string.IsNullOrWhiteSpace(description?.FormatId) ? "fbx" : description.FormatId;
+    }
+
+    private static string BuildTempExportPath(string targetDirectory)
+    {
+        string tempRoot = Path.Combine(Path.GetTempPath(), "MHUpkManager", "fbx-export");
+        Directory.CreateDirectory(tempRoot);
+
+        string directoryName = Path.GetFileName(targetDirectory);
+        string safeDirectoryName = string.IsNullOrWhiteSpace(directoryName)
+            ? "export"
+            : SanitizeFileName(directoryName);
+
+        return Path.Combine(tempRoot, $"{safeDirectoryName}_{Guid.NewGuid():N}.fbx");
+    }
+
+    private static void TryDeleteFile(string path)
+    {
+        try
+        {
+            if (!string.IsNullOrWhiteSpace(path) && File.Exists(path))
+                File.Delete(path);
+        }
+        catch
+        {
+        }
     }
 
     private static Dictionary<int, int> BuildMaterials(Scene scene, IReadOnlyList<ExportMaterial> materials)
