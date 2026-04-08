@@ -69,7 +69,6 @@ internal sealed class UiEditorTool
     private readonly UpkTextureLoader _textureLoader = new();
     private readonly TextureLoader _diskTextureLoader = new();
     private readonly TexturePreviewInjector _textureInjector = new();
-    private readonly UiEditorDirectTextureInjector _directTextureInjector = new();
     private readonly UpkRawExportPatcher _rawExportPatcher = new();
 
     public Task<IReadOnlyList<EnemyClientUiTarget>> ScanPackageAsync(string packagePath, string subjectName)
@@ -169,7 +168,9 @@ internal sealed class UiEditorTool
         }
         catch (InvalidOperationException ex) when (ex.Message.Contains("was not found in TextureFileCacheManifest.bin", StringComparison.OrdinalIgnoreCase))
         {
-            await _directTextureInjector.InjectAsync(packagePath, asset.ExportPath, replacement, log).ConfigureAwait(true);
+            throw new InvalidOperationException(
+                $"Texture '{asset.ExportPath}' is not tracked by TextureFileCacheManifest.bin. Right now the UI Editor can only inject textures that are manifest/cache-backed. This UPK-only icon asset can be previewed and exported, but direct replacement is not implemented yet.",
+                ex);
         }
     }
 
