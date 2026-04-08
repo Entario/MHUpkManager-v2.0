@@ -19,7 +19,6 @@ using System.Media;
 using System.Numerics;
 using System.Reflection;
 using System.Security.Cryptography;
-using UpkManager.Contracts;
 using UpkManager.Extensions;
 using UpkManager.Indexing;
 using UpkManager.Models;
