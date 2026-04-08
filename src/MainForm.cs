@@ -153,6 +153,9 @@ namespace MHUpkManager
             uiEditorPanel.SetTextureReplacementEnabled(
                 false,
                 "UI image replacement is temporarily disabled in the shared build while direct UPK icon replacement is being validated.");
+            uiEditorPanel.SetSwfWorkspaceEnabled(
+                false,
+                "SWF export and re-import are temporarily disabled in the shared build while the UI editing workflow is being validated.");
             ConfigureLocalOnlyUiEditor();
             InitializeLocalOnlyFeatures();
             LogRetargetBuildMarker();

@@ -35,6 +35,8 @@ internal sealed class UiEditorPanel : UserControl
     private bool _suppressSelectionEvents;
     private bool _textureReplacementEnabled;
     private string _textureReplacementDisabledReason = string.Empty;
+    private bool _swfWorkspaceEnabled = true;
+    private string _swfWorkspaceDisabledReason = string.Empty;
 
     public UiEditorPanel()
     {
@@ -116,6 +118,7 @@ internal sealed class UiEditorPanel : UserControl
                 return;
 
             RefreshDetails();
+            RefreshSwfSelectionState();
             SelectedTargetChanged?.Invoke(this, EventArgs.Empty);
         };
 
@@ -257,6 +260,8 @@ internal sealed class UiEditorPanel : UserControl
     public string SwfImportFilePath => _swfImportPathTextBox.Text.Trim();
     public bool TextureReplacementEnabled => _textureReplacementEnabled;
     public string TextureReplacementDisabledReason => _textureReplacementDisabledReason;
+    public bool SwfWorkspaceEnabled => _swfWorkspaceEnabled;
+    public string SwfWorkspaceDisabledReason => _swfWorkspaceDisabledReason;
 
     public EnemyClientUiTarget SelectedTarget => _targetsGrid.SelectedRows.Count == 0
         ? null
@@ -290,6 +295,7 @@ internal sealed class UiEditorPanel : UserControl
         _subjectTextBox.Enabled = !busy;
         _targetsGrid.Enabled = !busy;
         _textureAssetsGrid.Enabled = !busy;
+        RefreshSwfSelectionState();
     }
 
     public void SetTargets(IReadOnlyList<EnemyClientUiTarget> targets)
@@ -379,14 +385,24 @@ internal sealed class UiEditorPanel : UserControl
         RefreshTextureSelectionState();
     }
 
+    public void SetSwfWorkspaceEnabled(bool enabled, string reason = null)
+    {
+        _swfWorkspaceEnabled = enabled;
+        _swfWorkspaceDisabledReason = enabled ? string.Empty : (reason ?? string.Empty);
+        RefreshSwfSelectionState();
+    }
+
     public void SetSwfImportFile(string importFilePath)
     {
         _swfImportPathTextBox.Text = importFilePath ?? string.Empty;
+        RefreshSwfSelectionState();
     }
 
     public void SetSwfPreview(string previewText)
     {
-        _swfPreviewTextBox.Text = string.IsNullOrWhiteSpace(previewText)
+        _swfPreviewTextBox.Text = !_swfWorkspaceEnabled && !string.IsNullOrWhiteSpace(_swfWorkspaceDisabledReason)
+            ? _swfWorkspaceDisabledReason
+            : string.IsNullOrWhiteSpace(previewText)
             ? "Select a swfmovie target, then preview it here to inspect the export size, embedded payload, and string hints."
             : previewText;
     }
@@ -478,6 +494,28 @@ internal sealed class UiEditorPanel : UserControl
             row.Cells["replacementColumn"].Value = string.IsNullOrWhiteSpace(asset.ReplacementFilePath)
                 ? "-"
                 : Path.GetFileName(asset.ReplacementFilePath);
+        }
+    }
+
+    private void RefreshSwfSelectionState()
+    {
+        bool enabled = _swfWorkspaceEnabled;
+        bool hasTarget = SelectedTarget != null;
+        bool hasImport = !string.IsNullOrWhiteSpace(_swfImportPathTextBox.Text);
+
+        _previewSwfButton.Enabled = enabled && hasTarget;
+        _exportSwfRawButton.Enabled = enabled && hasTarget;
+        _exportSwfEmbeddedButton.Enabled = enabled && hasTarget;
+        _chooseSwfImportButton.Enabled = enabled && hasTarget;
+        _importSwfButton.Enabled = enabled && hasTarget && hasImport;
+
+        if (!enabled && !string.IsNullOrWhiteSpace(_swfWorkspaceDisabledReason))
+        {
+            _swfPreviewTextBox.Text = _swfWorkspaceDisabledReason;
+        }
+        else if (string.IsNullOrWhiteSpace(_swfPreviewTextBox.Text))
+        {
+            _swfPreviewTextBox.Text = "Select a swfmovie target, then preview it here to inspect the export size, embedded payload, and string hints.";
         }
     }
 
