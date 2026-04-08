@@ -1,7 +1,6 @@
 using MHUpkManager.Models;
 using MHUpkManager.BackupManager;
 using MHUpkManager.MeshExporter;
-using MHUpkManager.EnemyConverter;
 using MHUpkManager.MeshImporter;
 using MHUpkManager.MeshPreview;
 using MHUpkManager.MeshSections;
@@ -48,7 +47,6 @@ namespace MHUpkManager
         private HexViewForm hexViewForm;
         private TextureViewForm textureViewForm;
         private readonly MeshExporterPanel meshExporterPanel;
-        private readonly EnemyPlayablePanel enemyPlayablePanel;
         private readonly MeshImporterPanel meshImporterPanel;
         private readonly MeshPreviewUI meshPreviewPanel;
         private readonly MeshSectionToolUI meshSectionToolPanel;
@@ -62,13 +60,9 @@ namespace MHUpkManager
         private readonly TextureWorkspaceUI textureWorkspacePanel;
         private readonly SkeletalMeshRetargeterPanel skeletalMeshRetargeterPanel;
         private readonly UiEditorPanel uiEditorPanel;
-        private readonly EnemyPlayableConverter enemyPlayableConverter;
         private readonly UiEditorTool uiEditorTool;
         private readonly UpkBrowsePreferencesStore upkBrowsePreferencesStore;
         private readonly UpkBrowsePreferences upkBrowsePreferences;
-        private readonly Dictionary<string, UnrealExportTableEntry> enemyPlayableExports = new(StringComparer.OrdinalIgnoreCase);
-        private readonly Dictionary<string, EnemyScanCandidate> enemyPlayableScanCandidates = new(StringComparer.OrdinalIgnoreCase);
-        private readonly Dictionary<string, UnrealHeader> enemyPlayableHeaderCache = new(StringComparer.OrdinalIgnoreCase);
         private UnrealHeader meshExporterHeader;
         private readonly Dictionary<string, UnrealExportTableEntry> meshExporterExports = new(StringComparer.OrdinalIgnoreCase);
         private UnrealHeader meshImporterHeader;
@@ -108,7 +102,6 @@ namespace MHUpkManager
 
             repository = new UpkFileRepository();
             LoadPackageIndex();
-            enemyPlayableConverter = new EnemyPlayableConverter(repository);
             upkBrowsePreferencesStore = new UpkBrowsePreferencesStore();
             upkBrowsePreferences = upkBrowsePreferencesStore.Load();
 
@@ -124,7 +117,6 @@ namespace MHUpkManager
             textureViewForm = new TextureViewForm();
             textureViewForm.SendToTexturePreviewRequested = ShowTextureInPreviewTab;
             meshExporterPanel = new MeshExporterPanel();
-            enemyPlayablePanel = new EnemyPlayablePanel();
             meshImporterPanel = new MeshImporterPanel();
             meshPreviewPanel = new MeshPreviewUI();
             meshSectionToolPanel = new MeshSectionToolUI(meshPreviewPanel, GetCurrentUpkPath, GetCurrentSkeletalMeshExportPath);
@@ -148,7 +140,6 @@ namespace MHUpkManager
             InitializeObjectsWorkspaceUi();
             InitializeMeshPreviewUi();
             InitializeMeshExporterUi();
-            InitializeEnemyPlayableUi();
             InitializeMeshImporterUi();
             InitializeMeshWorkspaceUi();
             InitializeBackupManagerUi();
@@ -615,27 +606,6 @@ namespace MHUpkManager
             meshImporterPanel.ImportRequested += async (_, _) => await ImportMeshFromPanelAsync().ConfigureAwait(true);
         }
 
-        private void InitializeEnemyPlayableUi()
-        {
-            TabPage enemyConverterPage = new()
-            {
-                Name = "enemyConverterPage",
-                Text = "Enemy Converter",
-                UseVisualStyleBackColor = true
-            };
-            enemyConverterPage.Controls.Add(enemyPlayablePanel);
-            tabControl2.Controls.Add(enemyConverterPage);
-
-            enemyPlayablePanel.SelectedMeshChanged += async (_, _) => await RefreshEnemyPlayableDetectionAsync().ConfigureAwait(true);
-            enemyPlayablePanel.ScanSelectionChanged += async (_, _) => await RefreshEnemyPlayableDetectionAsync().ConfigureAwait(true);
-            enemyPlayablePanel.ScanCurrentFolderRequested += async (_, _) => await ScanEnemyPlayableCurrentFolderAsync().ConfigureAwait(true);
-            enemyPlayablePanel.BrowseScanFolderRequested += async (_, _) => await BrowseEnemyPlayableScanFolderAsync().ConfigureAwait(true);
-            enemyPlayablePanel.ConvertRequested += async (_, _) => await ConvertEnemyToPlayableAsync().ConfigureAwait(true);
-
-            // TODO(enemy-converter-ui-registration): keep this tab wired into the workspace tab order if the tool navigation shell changes again.
-            // TODO(enemy-converter-menu-registration): add a dedicated menu entry if this workflow should be launchable without switching to the workspace tab.
-        }
-
         private void InitializeMeshWorkspaceUi()
         {
             TabPage meshWorkspacePage = new()
@@ -766,7 +736,6 @@ namespace MHUpkManager
                 string.Equals(activeTabName, "objectsPage", StringComparison.Ordinal) ||
                 string.Equals(activeTabName, "propertyFilePage", StringComparison.Ordinal);
             bool isToolWorkspace =
-                string.Equals(activeTabName, "enemyConverterPage", StringComparison.Ordinal) ||
                 string.Equals(activeTabName, "meshWorkspacePage", StringComparison.Ordinal) ||
                 string.Equals(activeTabName, "backupManagerPage", StringComparison.Ordinal) ||
                 string.Equals(activeTabName, "textureWorkspacePage", StringComparison.Ordinal) ||
@@ -815,189 +784,6 @@ namespace MHUpkManager
             finally
             {
                 showingRetargetWarning = false;
-            }
-        }
-
-        private void RefreshEnemyPlayableExports()
-        {
-            enemyPlayableExports.Clear();
-
-            if (UpkFile?.Header?.ExportTable == null)
-            {
-                enemyPlayablePanel.SetMeshOptions([]);
-                enemyPlayablePanel.ClearDetectedComponents();
-                return;
-            }
-
-            foreach (UnrealExportTableEntry export in UpkFile.Header.ExportTable)
-            {
-                if (!string.Equals(export.ClassReferenceNameIndex?.Name, "SkeletalMesh", StringComparison.OrdinalIgnoreCase))
-                    continue;
-
-                string path = export.GetPathName();
-                if (string.IsNullOrWhiteSpace(path))
-                    continue;
-
-                enemyPlayableExports[path] = export;
-            }
-
-            enemyPlayablePanel.SetMeshOptions(enemyPlayableExports.Keys);
-            enemyPlayablePanel.SetScanFolder(Path.GetDirectoryName(GetCurrentUpkPath()) ?? string.Empty);
-        }
-
-        private async Task RefreshEnemyPlayableDetectionAsync()
-        {
-            EnemyPlayableSelection selection = await GetEnemyPlayableSelectionAsync().ConfigureAwait(true);
-            if (selection == null)
-            {
-                enemyPlayablePanel.ClearDetectedComponents();
-                return;
-            }
-
-            try
-            {
-                enemyPlayablePanel.SetBusy(true);
-                EnemyComponentDetectionResult detection = await Task.Run(() => enemyPlayableConverter.DetectEnemyComponents(selection)).ConfigureAwait(true);
-
-                enemyPlayablePanel.SetDetectionResult(detection);
-                enemyPlayablePanel.SetLog(detection.Messages);
-            }
-            catch (Exception ex)
-            {
-                enemyPlayablePanel.ClearDetectedComponents();
-                enemyPlayablePanel.SetLog([$"Enemy Converter detection failed: {ex.Message}"]);
-                WarningBox($"Enemy Converter detection failed.\n\n{ex}");
-            }
-            finally
-            {
-                enemyPlayablePanel.SetBusy(false);
-            }
-        }
-
-        private async Task ConvertEnemyToPlayableAsync()
-        {
-            EnemyPlayableSelection selection = await GetEnemyPlayableSelectionAsync().ConfigureAwait(true);
-            if (selection == null)
-            {
-                WarningBox("Select an enemy SkeletalMesh export or choose a compatible scan result first.");
-                return;
-            }
-
-            try
-            {
-                Cursor.Current = Cursors.WaitCursor;
-                progressStatus.Text = "Converting enemy mesh into a playable hero bundle...";
-                enemyPlayablePanel.SetBusy(true);
-
-                EnemyPlayableConversionResult result = await Task.Run(() => enemyPlayableConverter.BuildPlayableHero(selection)).ConfigureAwait(true);
-
-                enemyPlayablePanel.SetDetectionResult(new EnemyComponentDetectionResult
-                {
-                    DependencyGraph = result.DependencyGraph,
-                    SkeletonCompatible = true,
-                    Messages = result.Messages
-                });
-                enemyPlayablePanel.SetLog(result.Messages);
-                progressStatus.Text = "Enemy converter completed.";
-
-                MessageBox.Show(
-                    $"Enemy converter output written to:\n{result.PackageResult.OutputDirectory}\n\nPatched game tables: {result.PatchPlan.PatchedFiles.Count}",
-                    "Enemy Converter Complete",
-                    MessageBoxButtons.OK,
-                    MessageBoxIcon.Information);
-            }
-            catch (Exception ex)
-            {
-                progressStatus.Text = "Enemy converter failed.";
-                WarningBox($"Enemy Converter failed.\n\n{ex}");
-            }
-            finally
-            {
-                enemyPlayablePanel.SetBusy(false);
-                Cursor.Current = Cursors.Default;
-            }
-        }
-
-        private async Task ScanEnemyPlayableCurrentFolderAsync()
-        {
-            string currentUpkPath = GetCurrentUpkPath();
-            if (string.IsNullOrWhiteSpace(currentUpkPath))
-            {
-                WarningBox("Open a UPK file first so the Enemy Converter can scan that package folder.");
-                return;
-            }
-
-            string folderPath = Path.GetDirectoryName(currentUpkPath);
-            if (string.IsNullOrWhiteSpace(folderPath))
-            {
-                WarningBox("The current UPK folder could not be determined.");
-                return;
-            }
-
-            await ScanEnemyPlayableFolderAsync(folderPath).ConfigureAwait(true);
-        }
-
-        private async Task BrowseEnemyPlayableScanFolderAsync()
-        {
-            using FolderBrowserDialog dialog = new()
-            {
-                Description = "Select the UPK folder to scan for compatible enemy SkeletalMeshes.",
-                UseDescriptionForTitle = true
-            };
-
-            string currentUpkPath = GetCurrentUpkPath();
-            string initialPath = Path.GetDirectoryName(currentUpkPath);
-            if (!string.IsNullOrWhiteSpace(initialPath) && Directory.Exists(initialPath))
-                dialog.InitialDirectory = initialPath;
-
-            if (dialog.ShowDialog(this) != DialogResult.OK || string.IsNullOrWhiteSpace(dialog.SelectedPath))
-                return;
-
-            await ScanEnemyPlayableFolderAsync(dialog.SelectedPath).ConfigureAwait(true);
-        }
-
-        private async Task ScanEnemyPlayableFolderAsync(string folderPath)
-        {
-            try
-            {
-                Cursor.Current = Cursors.WaitCursor;
-                progressStatus.Text = "Scanning UPK folder for compatible enemy meshes...";
-                enemyPlayablePanel.SetBusy(true);
-                enemyPlayablePanel.SetScanFolder(folderPath);
-                enemyPlayablePanel.SetLog([$"Enemy Converter: scanning {folderPath}..."]);
-
-                EnemyScanSummary summary = await Task.Run(() => enemyPlayableConverter.ScanFolderForPlayableEnemies(folderPath, _ => { })).ConfigureAwait(true);
-
-                enemyPlayableScanCandidates.Clear();
-                foreach (EnemyScanCandidate candidate in summary.Candidates)
-                {
-                    if (!string.IsNullOrWhiteSpace(candidate.SelectionKey))
-                        enemyPlayableScanCandidates[candidate.SelectionKey] = candidate;
-                }
-
-                enemyPlayablePanel.SetScanResults(summary);
-                List<string> logLines =
-                [
-                    $"Enemy Converter: scanned {summary.Candidates.Count} candidates in {summary.FolderPath}.",
-                    $"Ready={summary.ReadyCount}, Warning={summary.WarningCount}, Incompatible={summary.IncompatibleCount}, Error={summary.ErrorCount}"
-                ];
-                foreach (EnemyScanCandidate candidate in summary.Candidates.Where(static item => item.Status == EnemyScanCompatibilityStatus.Ready || item.Status == EnemyScanCompatibilityStatus.Warning).Take(25))
-                    logLines.Add($"{candidate.Status}: {candidate.DisplayName} | {candidate.WarningSummary}");
-
-                enemyPlayablePanel.SetLog(logLines);
-                progressStatus.Text = "Enemy converter scan completed.";
-                await RefreshEnemyPlayableDetectionAsync().ConfigureAwait(true);
-            }
-            catch (Exception ex)
-            {
-                progressStatus.Text = "Enemy converter scan failed.";
-                enemyPlayablePanel.SetLog([$"Enemy Converter scan failed: {ex.Message}"]);
-                WarningBox($"Enemy Converter scan failed.\n\n{ex}");
-            }
-            finally
-            {
-                enemyPlayablePanel.SetBusy(false);
-                Cursor.Current = Cursors.Default;
             }
         }
 
@@ -1516,57 +1302,6 @@ namespace MHUpkManager
             string packageName = Path.GetFileNameWithoutExtension(packagePath);
             string timestamp = DateTime.Now.ToString("yyyyMMdd-HHmmss");
             return Path.Combine(desktopPath, "MHUPKManager Output", "UiEditor", packageName, timestamp);
-        }
-
-        private async Task<EnemyPlayableSelection> GetEnemyPlayableSelectionAsync()
-        {
-            EnemyScanCandidate scanCandidate = enemyPlayablePanel.SelectedScanCandidate;
-            if (scanCandidate != null && !string.IsNullOrWhiteSpace(scanCandidate.SourceUpkPath) && !string.IsNullOrWhiteSpace(scanCandidate.MeshExportPath))
-            {
-                UnrealHeader header = await GetEnemyPlayableHeaderAsync(scanCandidate.SourceUpkPath).ConfigureAwait(true);
-                UnrealExportTableEntry meshExport = header?.ExportTable?
-                    .FirstOrDefault(export => string.Equals(export.GetPathName(), scanCandidate.MeshExportPath, StringComparison.OrdinalIgnoreCase));
-
-                if (header != null && meshExport != null)
-                {
-                    return new EnemyPlayableSelection
-                    {
-                        Header = header,
-                        MeshExport = meshExport,
-                        SourceUpkPath = scanCandidate.SourceUpkPath
-                    };
-                }
-            }
-
-            if (UpkFile?.Header == null || string.IsNullOrWhiteSpace(enemyPlayablePanel.SelectedMeshName))
-                return null;
-
-            if (!enemyPlayableExports.TryGetValue(enemyPlayablePanel.SelectedMeshName, out UnrealExportTableEntry currentMeshExport))
-                return null;
-
-            return new EnemyPlayableSelection
-            {
-                Header = UpkFile.Header,
-                MeshExport = currentMeshExport,
-                SourceUpkPath = GetCurrentUpkPath()
-            };
-        }
-
-        private async Task<UnrealHeader> GetEnemyPlayableHeaderAsync(string upkPath)
-        {
-            if (string.IsNullOrWhiteSpace(upkPath))
-                return null;
-
-            string currentUpkPath = GetCurrentUpkPath();
-            if (!string.IsNullOrWhiteSpace(currentUpkPath) && string.Equals(currentUpkPath, upkPath, StringComparison.OrdinalIgnoreCase) && UpkFile?.Header != null)
-                return UpkFile.Header;
-
-            if (enemyPlayableHeaderCache.TryGetValue(upkPath, out UnrealHeader cachedHeader))
-                return cachedHeader;
-
-            UnrealHeader header = await repository.LoadUpkFile(upkPath).ConfigureAwait(true);
-            enemyPlayableHeaderCache[upkPath] = header;
-            return header;
         }
 
         private async Task BrowseMeshImporterUpkAsync()
@@ -3496,8 +3231,6 @@ namespace MHUpkManager
 
                 ViewEntities.BuildObjectTree(rootNodes, header);
                 UpdateObjectsTree();
-                RefreshEnemyPlayableExports();
-                // TODO(enemy-converter-upk-loading-hook): keep the converter mesh list in sync here whenever the active UPK lifecycle changes.
                 ApplyTheme();
             }
             finally

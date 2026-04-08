@@ -1,6 +1,5 @@
 using System.Drawing.Imaging;
 using System.Text;
-using MHUpkManager.EnemyConverter;
 using MHUpkManager.TexturePreview;
 using UpkManager.Models.UpkFile;
 using UpkManager.Models.UpkFile.Tables;
